@@ -1,0 +1,662 @@
+---
+title: "Data Analytics & Visualisation"
+author: "Simranpal Singh Kohli"
+date: "5/9/2020"
+output:
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+x=c('tidyr','dplyr',"ggplot2","tidyverse",'ggcorrplot','GGally','corrplot','XLConnect','dummies',
+    'fastDummies','car','MASS','caret','ggthemes','gridExtra','ggthemes','InformationValue','ROCR',
+    'githubinstall','devtools','randomForest','cvTools','e1071','plotly')
+lapply(x, require, character.only = TRUE)
+setwd("D:\\CIT\\Sem2\\Data_Visualisation\\Assignment_2\\Git_Submission")
+```
+
+# Question a:
+## RF Dataset
+
+__Reading the RF dataset using XLConnect package__: There are two datasets i.e. Training & Scoring set. We will read both the dataset together & apply preprocessing on the combine dataset. So when we need to do prediction on scoring set, we can have prepocessed data. Training set has __2186__ observation & __79__ columns whereas, Scoring data set has __936__ observation & __77__ columns.
+```{r, echo=FALSE}
+RF_Training_df=readWorksheetFromFile("RF_TrainingDatasetA_Final.xlsx",sheet = "RF_TrainingDataset", header = TRUE)
+# head(RF_Training_df,n=3)
+RF_Scoring_df=readWorksheetFromFile("RF_ScoringDatasetA_Final.xlsx",sheet = "RF_ScoringDataset", header = TRUE)
+
+RF_Training_df=RF_Training_df %>% mutate(Difference=as.numeric(1))
+RF_Scoring_df=RF_Scoring_df %>% mutate(Difference=as.numeric(0))
+```
+
+## Exploratory Data Analysis (EDA):
+
+__1) Response Variable Barplot__: Response Variable i.e. _**Eng_Class**_ has two categories i.e. *okay* & *under*. It forms an unbalanced variable distribution of 1912 into 'okay' & 274 into 'under' categories.
+```{r echo=FALSE}
+ggplot(data=RF_Training_df, aes(x=as.factor(Eng_Class),fill=as.factor(Eng_Class))) +
+  geom_bar(stat="count")+
+  geom_text(stat = 'count',aes(label=..count..), vjust=1.6, color="white", size=3.5)+
+  theme_minimal()
+```
+
+__2) AntennagaindBi1 Variable__: As can be seen from below output, there is no difference in 1st quantile & median (36.60 & 36.80). Variable is highly left skewed & there are outlier points in this variable.
+```{r echo=FALSE}
+summary(RF_Training_df$AntennagaindBi1)
+ggplot(RF_Training_df, aes(y=AntennagaindBi1,fill=c("blue"))) +
+  geom_boxplot()
+```
+
+__3) EIRPdBm1 Variable__: These data point is left skewed. There are many lower outliers point in the variable.
+```{r echo=FALSE}
+summary(RF_Training_df$EIRPdBm1)
+ggplot(RF_Training_df, aes(y=EIRPdBm1,fill=c("blue"))) +
+  geom_boxplot()
+
+ggplot(RF_Training_df, aes(x=EIRPdBm1,fill=c("red"))) +
+  geom_histogram()
+```
+
+__4) TXpowerdBm1 Variable__: As can be seen from the below graph, these data point is left skewed. There are many lower outliers point in the variable.
+```{r echo=FALSE}
+summary(RF_Training_df$TXpowerdBm1)
+ggplot(data=RF_Training_df, aes(x=TXpowerdBm1,fill=c("red"))) +
+  geom_density(stat="count")+
+  theme_minimal()
+ggplot(RF_Training_df, aes(x=Fullmaxt1,fill=c("red"))) + geom_boxplot()
+```
+
+__5) Polarization Variable__: Variable has two categories i.e. *Horizontal* & *Vertical*. It forms an unbalanced variable distribution of 667 into 'Horizontal' & 1519 into 'Vertical' categories. Thus, __attenuation__ factor is low as horizontal point is less.
+```{r echo=FALSE}
+ggplot(data=RF_Training_df, aes(x=as.factor(Polarization),fill=as.factor(Polarization))) +
+  geom_bar(stat="count")+
+  geom_text(stat = 'count',aes(label=..count..), vjust=1.6, color="white", size=3.5)+
+  theme_minimal()
+```
+
+__6) Fullmaxt1 Variable__: These variable is right skewed. There are many upper outliers point in the variable.
+```{r echo=FALSE}
+ggplot(RF_Training_df, aes(x=Fullmaxt1,fill=c("red"))) + geom_boxplot()
+ggplot(RF_Training_df, aes(x=Fullmaxt1,fill=c("red"))) +
+  geom_histogram()
+```
+
+__8) Summary of the dataframe__: There are 21 character columns & 59 numeric columns. _CirculatorbranchinglossdB1_ contains all 0 value as its mean is 0. _DiffractionlossdB_ also contains almost 0 values with a mean of 0.133 & median of 0. Only variable _DpQ_R2 & Fullmint1_ contains NA values._MainnetpathlossdB2_ variable is almost normally distributed. Most of the variables are skewed positively or negatively.
+```{r echo=FALSE}
+table(sapply(RF_Training_df,mode))
+summary(RF_Training_df)
+```
+
+__Glimpse of dataframe__: As can be seen from below output, we have quite a few variables which are *character* that needs to be converted to numerical. We will create dummies of such character variables & clean our data. Also, we will merge the Training & Scoring dataset & preprocess them together so that we can find the prediction on scoring data without any issue.
+```{r echo=FALSE}
+glimpse(RF_Training_df)
+```
+
+__Merging Training & Scoring set__: Before merging the two dataset, we will check whether both contains the same column names or not. We can see that Scoring data set has four columns with different names *("EffectiveFadeMargindB1","EffectiveFadeMargindB2","ThermalFadeMargindB1" "ThermalFadeMargindB2")* & two columns which doesn't exist in Scoring dataset *("Eng_Class","Outcome")*  which is quite obvious as we need to predict Eng_Class. We will rename such columns and merge them.
+```{r echo=FALSE}
+colnames(RF_Training_df[which(!(colnames(RF_Training_df) %in% colnames(RF_Scoring_df)))])
+
+# Creating the vector of columns which are there in Scoring set but not in Training set
+old_col_names=c("EffectivefademargindB1","EffectivefademargindB2","ThermalfademargindB1","ThermalfademargindB2")
+new_col_names=c("EffectiveFadeMargindB1","EffectiveFadeMargindB2","ThermalFadeMargindB1","ThermalFadeMargindB2")
+# Renaming the column names which are present in Training but not in Scoring set
+RF_Scoring_df=RF_Scoring_df %>% rename_at(vars(old_col_names), ~ new_col_names)
+# Finally, merging this two sets using bind_rows method
+All_RF_df=bind_rows(RF_Training_df,RF_Scoring_df)
+# colnames(All_RF_df[which(!(colnames(All_RF_df) %in% colnames(RF_Training_df)))])
+# colnames(All_RF_df[which(!(colnames(All_RF_df) %in% colnames(RF_Scoring_df)))])
+```
+
+## Data Cleaning:  
+Here we will understand the dataset, remove any unwanted variables. Add more variables using dummies concept. Recreate our dataframe.  
+1) __Removing unwanted columns__: We will remove columns _RFDBid, Antennafilename1, Antennafilename2 & Outcome_ as it will show no impact on our model.
+```{r}
+RF_All_df1=All_RF_df %>% dplyr::select(-RFDBid,-Antennafilename1,-Antennafilename2,-Outcome)
+```
+
+2) __Creating Dummies for variable Antennamodel1__: As can be read in variable Antennamodel1, we have many unqiue values. If we create dummies for so many unique values of the variables, it will unnecessarily create variables which may not be impactful for our model, thus we will apply some manual analysis and accordingly create few dummies as can be read from the below line of code, we just create 4 dummies based on frequency count of character values.
+```{r}
+test_table=sort(table(RF_All_df1$Antennamodel1),decreasing = TRUE)
+RF_All_df1=RF_All_df1 %>% 
+  mutate(Antennamodel1_800=as.numeric(Antennamodel1 %in% names(which(test_table>800))),
+         Antennamodel1_300=as.numeric(Antennamodel1 %in% names(which(test_table>300 & test_table<=800))),
+         Antennamodel1_200=as.numeric(Antennamodel1 %in% names(which(test_table>200 & test_table<=300))),
+         Antennamodel1_100=as.numeric(Antennamodel1 %in% names(which(test_table>100 & test_table<=200)))) %>%
+  dplyr::select(-Antennamodel1,-Antennamodel2)
+```
+
+3) __Creating Dummies for variable Emissiondesignator1__: For variable *Emissiondesignator1*, we will apply some manual analysis and accordingly create few dummies as can be read from the below line of code, we just create 4 dummies based on frequency count of character values.
+By analysis, column Emissiondesignator1 & Emissiondesignator1 contains similar records,
+thus we will discard one and create dummies for other.
+```{r}
+table_emission1=sort(table(RF_All_df1$Emissiondesignator1),decreasing = TRUE)
+table_emission1
+RF_All_df1=RF_All_df1 %>% 
+  mutate(Emissiondesignator1_1500=as.numeric(Emissiondesignator1 %in% names(which(table_emission1>1500))),
+         Emissiondesignator1_500=as.numeric(Emissiondesignator1 %in% names(which(table_emission1>500 & table_emission1<=1500))),
+         Emissiondesignator1_300=as.numeric(Emissiondesignator1 %in% names(which(table_emission1>300 & table_emission1<=500))),
+         Emissiondesignator1_200=as.numeric(Emissiondesignator1 %in% names(which(table_emission1>200 & table_emission1<=300)))) %>%
+  dplyr::select(-Emissiondesignator1,-Emissiondesignator2)
+```
+
+4) __Converting Polarization categories into 1's & 0's:__ As can be read from below output, we will convert this variable into 1's & 0's dummy.
+```{r}
+RF_All_df1=RF_All_df1 %>% mutate(Polarization_vertical=as.numeric(Polarization=="Vertical")) %>% dplyr::select(-Polarization)
+```
+
+5) __Creating Dummies for Radiofilename1:__ As both column contains same value, we will remove one and we will create manual dummies for other. Here, we will create dummies based on the frequencies of the count of radiofilename.
+```{r}
+table_radiofilename=sort(table(RF_All_df1$Radiofilename1),decreasing = TRUE)
+RF_All_df1=RF_All_df1 %>% 
+  mutate(Radiofilename1_600=as.numeric(Radiofilename1 %in% names(which(table_radiofilename>600))),
+         Radiofilename1_200=as.numeric(Radiofilename1 %in% names(which(table_radiofilename>200 & table_radiofilename<=600))),
+         Radiofilename1_100=as.numeric(Radiofilename1 %in% names(which(table_radiofilename>100 & table_radiofilename<=200)))) %>% 
+  dplyr::select(-Radiofilename1,-Radiofilename2)
+```
+
+6) __Creating Dummies for Radiomodel1:__ As both column contains same value, we will remove one and we will create manual dummies for other based on frequency of value.
+```{r}
+table_Radiomodel1=sort(table(RF_All_df1$Radiomodel1),decreasing = TRUE)
+RF_All_df1=RF_All_df1 %>% 
+  mutate(Radiomodel1_300=as.numeric(Radiomodel1 %in% names(which(table_Radiomodel1>300))),
+         Radiomodel1_120=as.numeric(Radiomodel1 %in% names(which(table_Radiomodel1>=120 & table_Radiomodel1<=300))),
+         Radiomodel1_80=as.numeric(Radiomodel1 %in% names(which(table_Radiomodel1>=80 & table_Radiomodel1<120)))) %>% 
+  dplyr::select(-Radiomodel1,-Radiomodel2)
+```
+
+7) __Converting RXthresholdcriteria1 categories into 1's & 0's:__ As _RXthresholdcriteria1 & RXthresholdcriteria1_ column contains almost similar values, we will discard one and create dummy for other variables.
+```{r}
+RF_All_df1=RF_All_df1 %>% mutate(RXthresholdcriteria_dumm1=as.numeric(RXthresholdcriteria1=="1E-6 BER")) %>% 
+  dplyr::select(-RXthresholdcriteria1,-RXthresholdcriteria2)
+```
+
+8) __Converting Character variables into numeric__: As __*DispersivefademargindB1*__ variable contains numeric value in a form of characters, we will directly convert into numeric.
+```{r}
+RF_All_df1$DispersivefademargindB1=as.numeric(RF_All_df1$DispersivefademargindB1)
+```
+
+9) __Converting Character variables into numeric__: As __*DispersivefademargindB1*__ variable contains numeric value in a form of characters, we will directly convert into numeric.
+```{r}
+RF_All_df1$DispersivefademargindB1=as.numeric(RF_All_df1$DispersivefademargindB1)
+```
+
+10) __Removing variables:__ As can be read from above output, Since the columns *Passivegain2dB, MiscellaneouslossdB1, MiscellaneouslossdB2, EIRPdBm2, ERPdbm1, ERPdbm2, EffectiveFadeMargindB2, DispersivefademargindB2, MainreceivesignaldBm2, MainnetpathlossdB2, FlatfademarginmultipathdB2, OtherRXlossdB1, OtherTXlossdB2, ThermalFadeMargindB2, RXthresholdleveldBm2, RXthresholdlevelv2, TXpowerdBm2, XPDfademarginmultipathdB1* contains the same value, we will discard one and keep the other.
+```{r}
+RF_All_df1=RF_All_df1 %>% dplyr::select(-MiscellaneouslossdB1,-MiscellaneouslossdB2,-Passivegain2dB,-EIRPdBm2,-ERPdbm1,
+                                        -ERPdbm2,-EffectiveFadeMargindB2,-DispersivefademargindB2,                                     -MainreceivesignaldBm2,-MainnetpathlossdB2,-FlatfademarginmultipathdB2,-OtherRXlossdB1,-OtherTXlossdB2,-ThermalFadeMargindB2,-RXthresholdleveldBm2,-RXthresholdlevelv2,-TXpowerdBm2,-XPDfademarginmultipathdB1,-AntennagaindBd2)
+```
+
+11) __Converting *Eng_Class* categories into 1's & 0's:__ Finally, converting our target variable i.e. Eng_Class into numeric.
+```{r}
+RF_All_df1=RF_All_df1 %>% mutate(Eng_Class_new=as.numeric(Eng_Class=="okay")) %>% 
+  dplyr::select(-Eng_Class)
+```
+
+12) __Dealing with *NA* values__: Variables Fullmint1 has 6 NA records & DpQ_R2 has 9 NA records.
+```{r echo=FALSE}
+apply(RF_All_df1,2,function(x) sum(is.na(x)))
+```
+
+Thus, we will impute this variables with mean values.
+```{r}
+RF_All_df1[which(is.na(RF_All_df1$Fullmint1)==TRUE),c('Fullmint1')]=mean(RF_All_df1$Fullmint1,na.rm = TRUE)
+RF_All_df1[which(is.na(RF_All_df1$DpQ_R2)==TRUE),c('DpQ_R2')]=mean(RF_All_df1$DpQ_R2,na.rm = TRUE)
+```
+
+Finally, we will split our Data frame back into Training & Scoring set.
+```{r}
+processed_training_df=RF_All_df1[which(RF_All_df1$Difference==1),!(colnames(RF_All_df1) %in% c('Difference'))]
+processed_scoring_df=RF_All_df1[which(RF_All_df1$Difference==0),!(colnames(RF_All_df1) %in% c('Difference','Eng_Class_new'))]
+```
+
+13) __nearZeroVar__: Here, we will remove all the variables with _near to zero variance_. We will use function nearZeroVar() of _caret_.
+```{r}
+nzv_all=nearZeroVar(processed_training_df)
+nzv_train_df <- processed_training_df[,-nzv_all]
+dim(nzv_train_df) #53
+```
+14) __Removing highly correlated variables__: In this step, we will remove all the variables with high correlation. We will use findCorrelation function and find out the variables to be removed. we have set default range to 0.75
+```{r}
+nzv_train_Cor <- cor(nzv_train_df)
+highly_CorDescr <-  findCorrelation(nzv_train_Cor, cutoff = 0.75)
+cor_train_df <-  nzv_train_df[,-highly_CorDescr]
+dim(cor_train_df) #39
+```
+
+15) __Linear Dependencies__: Here we will remove all the linear dependent variables. Since, we have null variables to remove i.e. we have no Linear dependencies.
+```{r}
+LiD_train_info <-  findLinearCombos(cor_train_df)
+LiD_train_info$remove
+```
+
+# Question b:
+## Train Test Split:  
+Here we will split the data into training & test set.
+
+```{r}
+set.seed(375)
+s_1=sample(1:nrow(cor_train_df),0.7*nrow(cor_train_df))
+RF_cor_train=cor_train_df[s_1,]
+RF_cor_test=cor_train_df[-s_1,]
+```
+
+## Building Model: Logistic Regression & Random Forest
+__Step 1) Variance Inflation Factor (VIF):__ Applying VIF & testing any variable above value 5. We will discard the variables with value above 5 as it can cost multicollinearity issue. 
+
+```{r}
+for_vif2=lm(Eng_Class_new~.,data=RF_cor_train)
+RF_vars <- attributes(alias(for_vif2)$Complete)$dimnames[[1]]
+RF_vars
+```
+
+As can be seen from below output, variables _OtherTXlossdB1, EIRPdBm1 & TXpowerdBm1_ has very high VIF i.e. ranging to 1200. We will discard this variable & again check for VIF.
+```{r}
+for_vif2=lm(Eng_Class_new~.,data=RF_cor_train)
+sort(vif(for_vif2),decreasing = T)[1:3]
+```
+
+As can be seen from below output, variables _FrequencyMHz, FlatfademarginmultipathdB1 & Radiofilename1_600_ has VIF greater than 5. Thus, we will discard this variable & again check for VIF.
+```{r}
+for_vif2=lm(Eng_Class_new~.-OtherTXlossdB1-TXpowerdBm1-EIRPdBm1,data=RF_cor_train)
+sort(vif(for_vif2),decreasing = T)[1:3]
+```
+
+
+As can be seen from below output, we have now all VIF less than 5. Thus we will stop checking the VIF any further & proceed to build the model.
+```{r}
+for_vif2=lm(Eng_Class_new~.-OtherTXlossdB1-TXpowerdBm1-EIRPdBm1-FrequencyMHz-FlatfademarginmultipathdB1
+            -Radiofilename1_600,data=RF_cor_train)
+sort(vif(for_vif2),decreasing = T)[1:3]
+```
+
+We will remove the variables listed above & reform our data frame.
+```{r}
+Training_model2_df=RF_cor_train %>% dplyr::select(-OtherTXlossdB1,-TXpowerdBm1,-EIRPdBm1,-FrequencyMHz,-FlatfademarginmultipathdB1,-Radiofilename1_600)
+dim(Training_model2_df)
+```
+
+
+__Step 2): Building Tuned Model__ We will build logistic regression & random forest. Both the model been tuned parallelly as can be seen from below code. We have applied manual K-Fold logic _(for loop)_ & during each fold, we are tunning both the model. Random forest is been tunned on mtry parameter applied on K-Fold. Logistic regression is applied to stepAIC during each fold.
+The best model of each Fold is predicted on test dataset & it's metric *(FScore)* is calculated & thereby storing each model run data in a list.
+
+```{r include=FALSE}
+set.seed(375)
+mykfolds=function(nobs,nfold=10){
+  
+  t=cvFolds(nobs,K=nfold,type='random')
+  
+  folds=list()
+  
+  for(i in 1:nfold){
+    
+    test=t$subsets[t$which==i]
+    train=t$subsets[t$which!=i]
+    
+    folds[[i]]=list('train'=train,'test'=test)
+  }
+  
+  return(folds)
+}
+
+myfolds=mykfolds(nrow(Training_model2_df),10)
+
+glm_list=list()
+rf_list=list()
+metric <- "Accuracy"
+control_rf <- trainControl(method="repeatedcv", number=2, repeats=1,search = "grid")
+train_control_glm <- trainControl(method = "cv", number = 5)
+tunegrid <- expand.grid(.mtry=c(1:10))
+Training_model2_df$Eng_Class_new=as.factor(Training_model2_df$Eng_Class_new)
+```
+
+
+```{r include=FALSE}
+knitr::opts_chunk$set(eval = TRUE)
+
+for(i in 1:10){
+  print(c(i))
+  fold=myfolds[[i]]
+  
+  train_data=Training_model2_df[fold$train,]
+  test_data=Training_model2_df[fold$test,]
+  
+  print('glm')
+  glm.fit=glm(Eng_Class_new ~.,family = "binomial",data=train_data)
+  best2_fit=stepAIC(glm.fit,trace = FALSE)
+  glm_score=predict(best2_fit,newdata=test_data,type = "response")
+  
+  print('rf')
+  rf_random <- train(as.factor(Eng_Class_new)~., data=Training_model2_df, method="rf", metric=metric, tuneGrid=tunegrid, trControl=control_rf)
+  rf.fit=randomForest(Eng_Class_new~.,data=train_data,ntree=100,mtry=as.numeric(rf_random$bestTune))
+  rf_score=as.numeric(as.character(predict(rf.fit,newdata=test_data,type = "response")))
+  
+  confusion_mat_rf=caret::confusionMatrix(as.factor(rf_score),test_data$Eng_Class_new,positive="1")
+  recall_rf=recall(test_data$Eng_Class_new, as.factor(rf_score))
+  precision_rf=precision(test_data$Eng_Class_new, rf_score)
+  fscore_rf=(2 * precision_rf * recall_rf) / (precision_rf + recall_rf)
+  
+  max_cutoff_glm <- optimalCutoff(actuals = train_data$Eng_Class_new, predictedScores = glm_score, 
+                              optimiseFor = "Both")
+  glm_pred=ifelse(glm_score>max_cutoff_glm,1,0)
+  confusion_mat_glm=confusionMatrix(as.factor(test_data$Eng_Class_new),glm_score,threshold = max_cutoff_glm)
+  recall_glm=recall(test_data$Eng_Class_new,as.factor(glm_pred))
+  precision_glm=precision(as.integer(as.character(test_data$Eng_Class_new)), glm_pred)
+  if(is.nan(precision_glm)){
+    fscore_glm=0
+  }
+  else{
+    fscore_glm=(2 * precision_glm * recall_glm) / (precision_glm + recall_glm)
+  }
+  
+  glm_list[[i]]=list('train'=train_data,'test'=test_data,'glm_predict'=glm_score,'glm_model'=glm.fit,
+                       'confusion_glm'=confusion_mat_glm,'recall_glm'=recall_glm,
+                     'precision_glm'=precision_glm,'max_cutoff_glm'=max_cutoff_glm,'fscore_glm'=fscore_glm)
+  rf_list[[i]]=list('train'=train_data,'test'=test_data,'rf_predict'=rf_score,'rf_model'=rf.fit,
+                       'confusion_rf'=confusion_mat_rf,'recall_rf'=recall_rf,'precision_rf'=precision_rf,
+                    'fscore_rf'=fscore_rf,'bestTune'=rf_random$bestTune)
+}
+```
+
+__Step 2)Best Model:__ The best results of each run is calculated in a list. As can be seen from below code, K-Fold tunned best model is **Random forest**. We will test our prediction on both the models & see the performance.
+```{r}
+bst_index=1
+final_list=list()
+best_model=function(list,fscore,bst_fscore){
+  for(i in 1:10){
+  if(as.numeric(list[[i]][fscore])>bst_fscore){
+    bst_fscore=as.numeric(list[[i]][fscore])
+    bst_index=i
+  }
+  else{
+    next
+  }
+  }
+  final_list=list("Fscore"=bst_fscore,"Best_Index"=bst_index)
+  return(final_list)
+}
+best_glm_model=best_model(list=glm_list,fscore="fscore_glm",bst_fscore=0)
+best_rf_model=best_model(list=rf_list,fscore="fscore_rf",bst_fscore=0)
+
+paste("Best glm score:, ",best_glm_model$Fscore)
+paste("Best glm index:, ",best_glm_model$Best_Index)
+# paste("Cutoff:, ",glm_list[[best_glm_model$Best_Index]]['max_cutoff_glm'])
+paste("rf score:, ",best_rf_model$Fscore)
+paste("rf index:, ",best_rf_model$Best_Index)
+paste("BestTune:, ",rf_list[[best_rf_model$Best_Index]]['bestTune'])
+```
+
+__Step 4): Logistic Regression Model Performance Measurement:__ We will test our best Logistic Regression model on Test data. As can be seen, model is performing very good on 1's i.e. very good precision but it is performing poorly on 0's i.e. recall is very low.
+```{r echo=FALSE}
+best_glm_fit=glm_list[[best_glm_model$Best_Index]]['glm_model']
+best_train_glm=unlist(predict(best_glm_fit,newdata=RF_cor_test,type = "response"))
+best_cutoff_glm <- optimalCutoff(actuals = RF_cor_test$Eng_Class_new, predictedScores = best_train_glm, optimiseFor = "Both")
+best_glm_pred=ifelse(best_train_glm>best_cutoff_glm,1,0)
+best_ConfusionMat_glm=confusionMatrix(as.factor(RF_cor_test$Eng_Class_new),best_train_glm,threshold = best_cutoff_glm)
+best_ConfusionMat_glm
+best_recall_glm=recall(as.factor(RF_cor_test$Eng_Class_new),as.factor(best_glm_pred))
+paste("Best LR Recall: ",best_recall_glm)
+best_precision_glm=precision(as.integer(as.character(RF_cor_test$Eng_Class_new)), best_glm_pred)
+paste("Best LR Precision: ",best_precision_glm)
+```
+
+__Step 4): Random Forest Model Performance Measurement:__ We will test our best Random Forest Regression model on Test data. As can be seen, model is performing very good on 1's i.e. very good precision & also it is performing very good on 0's i.e. recall. This model has very high accuracy, sensitivity & a decent Kappa. Thus, after carefully building & analysing our model we will finalize our model as __Random Forest__.
+```{r echo=FALSE}
+best_rf_fit=rf_list[[best_glm_model$Best_Index]]['rf_model']
+
+best_rf_train_fit=randomForest(as.factor(Eng_Class_new)~.,data=RF_cor_train,ntree=100,mtry=unlist(rf_list[[best_rf_model$Best_Index]]['bestTune']))
+
+best_test_rf=as.numeric(as.character(unlist(predict(best_rf_train_fit,newdata=RF_cor_test,type = "response"))))
+# best_test_rf=as.numeric(as.character(unlist(predict(best_rf_fit,newdata=RF_cor_test,type = "response"))))
+
+best_ConfusionMat_rf=caret::confusionMatrix(as.factor(best_test_rf),as.factor(RF_cor_test$Eng_Class_new),positive="1")
+best_ConfusionMat_rf
+best_recall_rf=recall(as.factor(RF_cor_test$Eng_Class_new), as.factor(best_test_rf))
+paste("Best RF Recall: ",best_recall_rf)
+best_precision_rf=precision(RF_cor_test$Eng_Class_new, best_test_rf)
+paste("Best RF Precision: ",best_precision_rf)
+best_fscore_rf=(2 * precision_rf * recall_rf) / (precision_rf + recall_rf)
+paste("Best RF FScore: ",best_fscore_rf)
+```
+
+```{r echo=FALSE}
+ggplot( RF_cor_test, aes( best_test_rf, color = as.factor(Eng_Class_new) ) ) +
+  geom_density( size = 1 ) +
+  ggtitle( "Training Set's Predicted Score" ) +
+  scale_color_economist( name = "data", labels = c( "under", "okay" ) ) +
+  theme_economist()
+```
+
+
+# Question c:
+## Feature Selection:  
+
+__Step 1):__ First we will do the feature selection on our best Random forest model. We will use the function __important & varImpPlot__ of RandomForest package to understand the variable importance. As can be seen in the plot, we got MeanDecreaseGini value to decide the variable importance. We have sorted the MeanDecreaseGini column in decreasin order and accordingly rebuilding our model to find the model with minimum __Out Of Bag (OOB)__ error.  
+
+```{r echo=FALSE}
+# RF_Imp_Var=importance(best_rf_fit$rf_model)
+RF_Imp_Var=importance(best_rf_train_fit)
+RF_Imp_df=as.data.frame(RF_Imp_Var)
+RF_Imp_df['ColumnName']=rownames(RF_Imp_df)
+RF_Imp_df=RF_Imp_df[order(-RF_Imp_df$MeanDecreaseGini),]
+varImpPlot(best_rf_train_fit,n.var = 20)
+```
+
+As can be learned from below output,by considering only 30 variables out of 38, we have got model OOB as 2.68% (slighyly above & below). Now, we will reduce the columns & find is there any change in OOB.
+```{r}
+Imp_Feature_Variables=RF_Imp_df[1:20,'ColumnName']
+model_formula=as.formula(paste("as.factor(Eng_Class_new)~", paste(Imp_Feature_Variables, collapse="+")))
+Feature_Best_RF_Model=randomForest(model_formula,data=RF_cor_train,ntree=100,mtry=unlist(rf_list[[best_rf_model$Best_Index]]['bestTune']))
+Feature_Best_RF_Model
+Feature_test_rf=as.numeric(as.character(unlist(predict(Feature_Best_RF_Model,newdata=RF_cor_test,type = "response"))))
+Feature_ConfusionMat_rf=caret::confusionMatrix(as.factor(Feature_test_rf),as.factor(RF_cor_test$Eng_Class_new),positive="1")
+best_ConfusionMat_rf
+```
+By reducing our column size to 18, we are getting least OOB i.e. 2.16% for our model. We tried many other combinations but variable with 18 gives the least OOB. Thus, we will set our feature selection to 18 columns as setted in the decreasing order based on ImpVariables.
+```{r echo=FALSE}
+Imp_Feature_Variables=RF_Imp_df[1:18,'ColumnName']
+model_formula=as.formula(paste("as.factor(Eng_Class_new)~", paste(Imp_Feature_Variables, collapse="+")))
+Feature_Best_RF_Model=randomForest(model_formula,data=RF_cor_train,ntree=100,mtry=unlist(rf_list[[best_rf_model$Best_Index]]['bestTune']))
+Feature_Best_RF_Model
+Feature_test_rf=as.numeric(as.character(unlist(predict(Feature_Best_RF_Model,newdata=RF_cor_test,type = "response"))))
+Feature_ConfusionMat_rf=caret::confusionMatrix(as.factor(Feature_test_rf),as.factor(RF_cor_test$Eng_Class_new),positive="1")
+best_ConfusionMat_rf
+```
+__Step 2):__ Second, we will apply feature selection for Logistic Regression model & see if there is any improvement in the model. We have already applied __VIF (Variation Importance Factor) & stepAIC__ in Qb before building our model. We will see if we can go any further with StepAIC(). Here we will also apply manual feature selection based on p-value. If p-value is less than 0.05, variable is significant & it p-value is more than 0.05, variable is insignificant, we can discard such variables. If we read through the summary of the model, we can interpret that __Radiomodel1_300__ has the highest p-value, we will discard this column & rerun our model
+
+```{r warning=FALSE, echo=FALSE}
+Feasture_glm_fit=glm_list[[best_glm_model$Best_Index]]['glm_model']$glm_model
+Feature_glm_Model=stepAIC(Feasture_glm_fit,trace = FALSE)
+summary(Feature_glm_Model)
+formula(Feature_glm_Model)
+```
+
+__Step 2.1):__ As can be seen in the output summary, __Radiomodel1_120__ has the highest p-value of 0.982268. we will discard this variable & rerun our model.
+```{r warning=FALSE, echo=FALSE}
+Feature_fit_model=glm(as.factor(Eng_Class_new) ~ AntennagaindBd1 + AtmosphericabsorptionlossdB + 
+                 ERPwatts2 + MainnetpathlossdB1 + Pathlengthkm + Trueazimuth1 + 
+                 DpQ_R2 + Fullmaxt1 + Fullmint1 + Antennamodel1_800 + Antennamodel1_300 + 
+                 Antennamodel1_200 + Emissiondesignator1_500 + Emissiondesignator1_300 +
+                 Emissiondesignator1_200 + Polarization_vertical + Radiomodel1_120,
+                 family = "binomial",data=RF_cor_train)
+summary(Feature_fit_model)
+```
+
+__Step 2.2):__ As can be seen in the output summary, __ERPwatts2__ has the highest p-value of 0.109130. We will discard this variable & rerun our model.
+```{r warning=FALSE, echo=FALSE}
+Feature_fit_model=glm(as.factor(Eng_Class_new) ~ AntennagaindBd1 + AtmosphericabsorptionlossdB + 
+                 ERPwatts2 + MainnetpathlossdB1 + Pathlengthkm + Trueazimuth1 + 
+                 DpQ_R2 + Fullmaxt1 + Fullmint1 + Antennamodel1_800 + Antennamodel1_300 + 
+                 Antennamodel1_200 + Emissiondesignator1_500 + Emissiondesignator1_300 +
+                 Emissiondesignator1_200 + Polarization_vertical,
+                 family = "binomial",data=RF_cor_train)
+summary(Feature_fit_model)
+```
+
+__Step 2.3):__ As can be seen in the output summary, __Trueazimuth1__ has the highest p-value of 0.416864. We will discard this variable & rerun our model.
+```{r warning=FALSE, echo=FALSE}
+Feature_fit_model=glm(as.factor(Eng_Class_new) ~ AntennagaindBd1 + AtmosphericabsorptionlossdB +
+                 MainnetpathlossdB1 + Pathlengthkm  + ERPwatts2 +
+                 DpQ_R2 + Fullmaxt1 + Fullmint1 + Antennamodel1_800 + Antennamodel1_300 + 
+                 Antennamodel1_200 + Emissiondesignator1_500 + Emissiondesignator1_300 +
+                 Emissiondesignator1_200 + Polarization_vertical,
+                 family = "binomial",data=RF_cor_train)
+summary(Feature_fit_model)
+```
+
+__Step 2.4):__ As can be seen in the output summary, __ERPwatts2__ has the highest p-value of 0.112094. We will discard this variable & rerun our model.
+```{r warning=FALSE, echo=FALSE}
+Feature_fit_model=glm(as.factor(Eng_Class_new) ~ AntennagaindBd1 + AtmosphericabsorptionlossdB +
+                 MainnetpathlossdB1 + Pathlengthkm  + 
+                 DpQ_R2 + Fullmaxt1 + Fullmint1 + Antennamodel1_800 + Antennamodel1_300 + 
+                 Antennamodel1_200 + Emissiondesignator1_500 + Emissiondesignator1_300 +
+                 Emissiondesignator1_200 + Polarization_vertical,
+                 family = "binomial",data=RF_cor_train)
+summary(Feature_fit_model)
+```
+
+__Step 2.5):__ As can be seen from below output summary, all the variables are now significant. Thus, we will stop removing any further features & build our model on this features. We will check the model performance on this many features.
+```{r warning=FALSE, echo=FALSE}
+Feature_fit_model=glm(as.factor(Eng_Class_new) ~ AntennagaindBd1 + AtmosphericabsorptionlossdB +
+                 MainnetpathlossdB1 + Pathlengthkm +
+                 DpQ_R2 + Fullmaxt1 + Fullmint1 + Antennamodel1_800 + Antennamodel1_300 + 
+                 Emissiondesignator1_500 + Emissiondesignator1_300 +
+                 Emissiondesignator1_200 + Polarization_vertical,
+                 family = "binomial",data=RF_cor_train)
+summary(Feature_fit_model)
+```
+
+Rebuilding our Logistic regression model based on feature selection has brought a slight improvement in the model performance. We can see that 0's ratio has improved a bit. But overall, still Random forest performs better.
+```{r echo=FALSE}
+Feature_test_glm=predict(Feature_fit_model,newdata=RF_cor_test,type = "response")
+Feature_cutoff_glm <- optimalCutoff(actuals = RF_cor_test$Eng_Class_new, predictedScores = Feature_test_glm, optimiseFor = "Both")
+Feature_glm_pred=ifelse(Feature_test_glm>best_cutoff_glm,1,0)
+Feature_ConfusionMat_glm=confusionMatrix(as.factor(RF_cor_test$Eng_Class_new),Feature_test_glm,threshold = Feature_cutoff_glm)
+Feature_ConfusionMat_glm
+Feature_recall_glm=recall(as.factor(RF_cor_test$Eng_Class_new),as.factor(Feature_glm_pred))
+paste("Best LR Recall: ",Feature_recall_glm)
+Feature_precision_glm=precision(as.integer(as.character(RF_cor_test$Eng_Class_new)), Feature_glm_pred)
+paste("Best LR Precision: ",Feature_precision_glm)
+```
+
+# Question d:
+## Model Explanation & Cost/Loss Function: 
+
+As we can see that, our best model is __Random Forest__ after finely tuning & running over K-Fold validation. We also verified the best model on feature selection using variance importance technique. We got OOB for our model near to 2%. We analyzed our best model based on __F1Score metric__ which is a trade off between recall & precision. 
+
+Basically, Random forest uses multiple decision tree in background to fit the best model. Decision tree has three nodes namely parent node, root node & terminal node. Decision tree uses any one of three metrics i.e. __Gini index, Entropy, Information gain__ to split the data. We will consider the metric *Entropy* to decide the splitting of the data. In Random forest, the number of variables required for a single tree is decided using the formula __√P__ where P is the number of variables that complete dataset has. Once the variable count is known for a single tree, Random forest will __randomly__ choose that many variables from the whole column list & it will randomly split the data into train & test observations required in a single decision tree. We give training dataset to random forest, random forest itself further splits this data into train & test randomly for each decision tree. It builds the tree on train set & test its result on test set. Thus, random in random forest is the random variables & random train test split required to process a single tree. For e.g. if we have 9 columns & 100 observations, it will choose √9=3 variables & split 100 observation into 70% train set & 30% test set for a tree randomly. In decision tree, the first node column is chosen based on Entropy. Column with a lower entropy is chosen & splits the data into either True or False sub node also called as root node. Further splitting of the data is done with respect to column with a lowest entropy. This splitting repeat based on the size of the tree decided during parameter of Random forest.
+
+Considering all the decision tree is formed based on the parameter ntree i.e. number of trees our random forest generates, now the random forest takes the final decision of classification based on __highest category voting__. For instance, if we have ntree as 500 & assuming 290 tree gives result as ‘okay’ & 210 tree gives result as ‘under’, the category with highest count is chosen i.e. okay. The process of voting repeats for all the data points. Each tree generates the error known as Out Of Bag error (OOB). This error reduces with each tree. Random forest finally generates the confusion matrix on the complete training set. 
+Cost or Loss function is the misclassification error term. Machine learning algorithms are trained to minimize the cost function.  The difference in cost & loss function is that cost function is for whole observation whereas loss is considered for one particular observation. Cost function used in classification is different than used in regression. In regression, the main idea of Cost function (MSE) is to reduce the error term by optimizing the value of weight (beta). We consider the algorithm Gradient descent to reduce the error by optimizing the value of beta. During each descent, we multiply previous slope value with the learning rate. 
+
+In classification, cross entropy cost function is used to measure the distance between two probability distributions [1]. As we know that in classification problem, we get probability value & the class with highest probability is selected as the winning prediction. The model adjusts its weight when the predicted probability is far from the actual one. Cross entropy is used to calculate the measure of predicted probability from actual one.  Considering the probability distribution for two classes i.e. okay & under [1].  
+P(D) = [y(okay'), y(under')]  
+A(D) = [y(okay), y(under)]
+
+Cross entropy is calculated as [1]  
+CrossEntropy=-(okay * log(okay') + under * log(under'))
+
+If we consider the below predicted & actual outcome,  
+p(okay) = [0.8,0.2]  
+A(okay) = [1,0]
+
+Our cross entropy will be,  
+Cross_Entropy = - (1 * log (0.8) + 0 * log (0.2)) = 0.2231436
+
+Our model has only two classes namely okay & under. we will use Binary cross entropy cost function.  
+When the category is 1 i.e. okay [1],   
+cross_entropy=-y*log(y')
+
+& when the category is 0 i.e. under [1],   
+cross_entropy=-(1-y) * log (1-y')
+
+The error in binary classification is given by below formula [1]    
+__Binary cross entropy= (sum of cross entropy for N observation)/N__
+
+Binary cross entropy penalizes if the prediction is wrongly measured [1]. For both the categories i.e. y=1 (okay) & y=1 (under), cost function reaches infinity when predicted probability is wrongly interpreted. Therefore, cross entropy is considered as the good metric for classification problem as it penalizes the wrong prediction [1].
+
+# Question e:
+## Misclassification ratio 1:h where h={8,16,24}:
+Cost ratio is a ratio of False Positive (FP) cost to the False Negative (FN) cost [2].
+A cost ratio of 1:8 means that cost of a False Negative (expected 'okay' predicted 'under') is eigt times that of a false positive (expected 'under' predicted 'okay'). As per the business requirements, we want incorrect scoring of okay when it is under should be less. Thus, we will assign more weight to it so as to reduce the error of False Positive.
+We judge the classifier on total cost calculated as __Total_cost = FP* FP(cost) + FN*FN(cost)__[2].
+```{r echo=FALSE}
+cost_ratio=function(h=8){
+  cost=TRUE
+  ratio=1/h
+  paste(1:h)
+  while(cost){
+    costMatrix <- matrix(c(0,1,h,0), nrow=2)
+    best_model=randomForest(model_formula, data = RF_cor_train, ntree = 100,mtry= unlist(rf_list[[best_rf_model$Best_Index]]['bestTune']),
+                            parms = list(loss=costMatrix))
+    FN=best_model$confusion[2,1]
+    FP=best_model$confusion[1,2]
+    Cost_ratio=FN/FP
+    if(h==8){
+      if(Cost_ratio==ratio){
+        cost=FALSE
+      }
+    }
+    else{
+      if((round(Cost_ratio,2)-0.06)==round(ratio,2)){
+        cost=FALSE
+      }
+    }
+    
+  }
+  return(best_model)
+}
+```
+
+## Model with cost ratio 1:8:  
+Here, we will apply the cost matrix and past as a parameter to our best Random Forest model. We will keep the cost ratio as 1:8 & pass to a small simulation function which gives the best ratio of FP/FN for our cost matrix. As can be seen from the rest, we have got the ratio as 5/40 which is exacly as 1/8. 
+```{r}
+cost_ratio(h=8)
+```
+
+## Model with cost ratio 1:16:  
+Here, We will keep the cost ratio as 1:16 & pass to a small simulation function which gives the best ratio of FP/FN for our cost matrix. As can be seen from the rest, we have got the ratio as 2/34 which is approximately equal to 1/16. 
+```{r}
+cost_ratio(h=16)
+```
+## Model with cost ratio 1:24:  
+Here, We will keep the cost ratio as 1:24. Model result for this ratio is not that accurate compare to previous 2 results for h={8,16}.
+```{r}
+costMatrix <- matrix(c(0,1,24,0), nrow=2)
+    best_24_model=randomForest(model_formula, data = RF_cor_train, ntree = 100,mtry= unlist(rf_list[[best_rf_model$Best_Index]]['bestTune']),parms = list(loss=costMatrix))
+    best_24_model
+```
+
+# Question f:
+## Prediction on Scoring data:  
+As we have already preprocessed our Scoring dataframe parallely with our Training dataset. Here, we need to use our best model & predict the outcome. Our best model was Random forest applied on feature selection.
+We cannot estimate any model metric as we don't have any actual y i.e. Eng_Class variable. We can read from below distribution of 1's & 0's from below output.
+```{r}
+Scoring_Prediction=as.numeric(as.character(unlist(predict(Feature_Best_RF_Model,newdata=processed_scoring_df,type = "response"))))
+table(Scoring_Prediction)
+```
+
+# Question g (i):  
+Convolutional Neural Network made up of neurons with weights & biases as learnable parameter [3]. It's base architecture  follows basic neural network. The added advantage of using CNN over basic Neural Network is considering the fact of neurons size. Suppose for an image data, we have 26 * 26 size i.e. 676 size, such size of neurons are adaptable to basic neural network system but what if we have a neural network of size 800*800. For such size, its operation processing would be very high [3]. Thus, CNN is used in such cases where it does feature extraction and convert into lower dimension without lossing its important characteristics.
+
+Image data constitute of 3 dimensional data points i.e. height, length & the color. CNN has hidden layer as convolution layer which is used to detect patterns in the images & it is the feature extracting layer [3]. For each convolution layer, it is important to define the number of filters that the layer should contain. It is the filter that detects the sophisticated patterns in the image. Filter consist of a small matrix whose values are initialize by random numbers. If we set filter size as 3 * 3, it will stride over 3 * 3 size image & apply dot product & store its value in a single size data point. It extracts the image features part by part by calculating dot product between receptive field & the filter [4]. It repeats the process untill all the field is completed. The receptive field is decided based on the field size matrix, it stride & repeat the operation. 
+
+Convolution layer output is passed to the input of Pooling layer. Max pooling reduces the dimensionality of the images by reducing the number of pixels. Pooling layer is a way of reducing the spatial volume of image [4]. We choose n * n region as the filter matrix & we decide stride which decides the filters to move the pixels by that size. For instance, if we have a matrix of 2 * 2 & a stride step of 2, we calculate the the max value from it & this is used as the output from this layer. We now move the number of pixels that we decide on the value of stride & calculate the max of this region. This operation will repeat until all the pixels is covered from the convolution layer. We consider the 2*2 numbers as the pool of numbers & we are calculating the max of this metrix thus this process is termed as max pooling.
+
+
+# Question g (iii) (1):  Text Analytics.
+The amount of text produced by humans is increasing exponentially & therefore the ability to process this large amount of text has become very important to support business information. The traditional approach of text analytics i.e. using text mining & Natural Language processing is based on statistical approach which lack background knowledge, contains missing context, ambiguity & has lack of standards [5]. Thus, Deep Learning text analytics has become integral part of getting text insights. The main difference between the traditional method & deep learning is the use of vectors. To represent a word, deep learning uses a vector implementation. Each word represent the length of a vector whose size is the complete size of vocabulory but this may increase the size of complete set [5]. Dimensionality reduction is required to process the word vector fast. Deep learning analytics assists with settling the uncertainty of unstructured data. It uses knowledgeable graphs & semantic standards to analyse the text [5]. Its methodology includes analysing the structure of text, extracting important entities from text in view of information diagrams [5]. Extracting the relevant phrases based on corpus statistics & therefore analysing the entities & classification of text using trained models [5]. It also includes the sensing of sentences by extracting the relevant data using knowledge graphs [5].
+
+Multilayer neural network is used to perform task related to NLP which includes POS tagging, role labeling in semantics, chunking, NER [6]. The methods which encorporates the text analytics uses greedy algorithm, Stochastic Auto Encoder, Word Graph representation and DCNN for training sentence by applying N-gram and Bag of Word [6]. CNN and RNN are used for sentiment classification with LSTM and CRF [6]. Distributed Maximally Collapsing Metric Learning is used to map the probability function of training dataset [6]. A recursive technique is used to parse segments of sentence features which produces a complete sentence. 
+
+An autoencoder is a feedforward network that can train with distributed data, typically with the objective of dimensionality decrease or complex learning & generally has one hidden layer between input and output layer [7]. The training adheres to the traditional neural network approach with backpropagation. The main difference lies in the process of computing the error by comparing the output to the information itself. 
+Feature extraction and clustering deep noise autoencoder algorithm converts spatial vectors of high-dimensional into lower-dimensional by utilizing deep learning network [7]. Other feature extraction techniques used are Prinicipal component analysis (PCA), shallow & deep sparse encoder for pattern 
+recognition [7]. Sparse autoencoder is used to extract text features thereby combining deep network to frame standard deviation algorithm to classify text. This technique results in higher recognition accuracy with good stability & better generalization. [7]
+
+
+__References:__  
+[1] MLK - Machine Learning Knowledge. 2020. Dummies Guide To Cost Functions In Machine Learning [With Animation]. [online] Available at: <https://machinelearningknowledge.ai/cost-functions-in-machine-learning/> [Accessed 12 May 2020].  
+[2] Ciraco, M., Rogalewski, M. and Weiss, G., 2005, August. Improving classifier utility by altering the misclassification cost ratio. In Proceedings of the 1st international workshop on Utility-based data mining (pp. 46-52).  
+[3] Medium. 2020. Convolutional Neural Network. [online] Available at: <https://towardsdatascience.com/covolutional-neural-network-cb0883dd6529> [Accessed 12 May 2020].  
+[4] Cs231n.github.io. 2020. Cs231n Convolutional Neural Networks For Visual Recognition. [online] Available at: <https://cs231n.github.io/convolutional-networks/> [Accessed 12 May 2020].  
+[5] PoolParty Semantic Suite. 2020. What Is Deep Text Analytics - Extract Insights From Unstructured Data. [online] Available at: <https://www.poolparty.biz/what-is-deep-text-analytics/> [Accessed 12 May 2020].  
+[6] Widiastuti, N.I., 2018, August. Deep Learning–Now and Next in Text Mining and Natural Language Processing. In IOP Conference Series: Materials Science and Engineering (Vol. 407, No. 1, p. 012114). IOP Publishing.  
+[7] Liang, H., Sun, X., Sun, Y. and Gao, Y., 2017. Text feature extraction based on deep learning: a review. EURASIP journal on wireless communications and networking, 2017(1), pp.1-12.
