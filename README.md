@@ -26,5 +26,4 @@ e)	Patrick is primarily concerned with finding the under engineered masts as the
 
 f)	Using the scoring data set provided predict whether these radio masts will be okay or under engineered using your best model to part d) and comment.
 
-# Note: Feel free to reach out to me in case through my website
 
