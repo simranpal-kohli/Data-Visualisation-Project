@@ -14,15 +14,15 @@ To help you Patrick has commissioned an engineer to classify 2,186 radio masts a
 He has also supplied you with a scoring dataset of 936 radio masts for you to classify as whether okay or
 Under.
 
-a)	Investigate the data by carrying out some exploratory data analysis (EDA). Perform the necessary data cleaning/data reduction tasks and outline how you do this in R.
+a)	Investigate the data by carrying out some exploratory data analysis (EDA). Perform the necessary data cleaning/data reduction tasks.
 
-b)	Set up a training/testing methodology. Using a least 2 models, tune these models and compare your results. Give your best model and comment.
+b)	Set up a training/testing methodology. Using a least 2 models, tune these models and compare your results.
 
-c)	Perform feature selection on your model in c). Explain how you do this, giving a rational and comment on your results.
+c)	Perform feature selection on your model in case study c).
 
 d)	For your best model explain to Patrick how this model works. Give and explain the cost/loss function used in your modelling.
 
-e)	Patrick is primarily concerned with finding the under engineered masts as these are the ones that cause outages, so incorrectly ‘scoring’ a mast as under when is it okay is not as bad as incorrectly ‘scoring’ a mast as okay when it is under; you can take the ratio here of misclassification ‘costs’ as 1:h, where h = {8, 16, 24}, i.e. h can take a value of 8, 16 or 24. Redo your modelling using your best model above and comment on your new results.
+e)	Patrick is primarily concerned with finding the under engineered masts as these are the ones that cause outages, so incorrectly ‘scoring’ a mast as under when is it okay is not as bad as incorrectly ‘scoring’ a mast as okay when it is under; you can take the ratio here of misclassification ‘costs’ as 1:h, where h = {8, 16, 24}, i.e. h can take a value of 8, 16 or 24. Redo your modelling using your best model above.
 
 f)	Using the scoring data set provided predict whether these radio masts will be okay or under engineered using your best model to part d) and comment.
 
